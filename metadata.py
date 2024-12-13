@@ -7,24 +7,42 @@ from build import ProjectBuilder
 from pyproject_hooks import quiet_subprocess_runner
 
 
-def build_metadata(srcdir: str, installer: str = 'pip') -> str:
+def build_metadata(
+  srcdir: str,
+  installer: str = 'pip',
+  isolation: bool = True,
+) -> str:
+  # pylint: disable=protected-access
+  # pylint: disable=unspecified-encoding
   with tempfile.TemporaryDirectory() as outdir:
-    with DefaultIsolatedEnv(installer=installer) as env:
-      builder = ProjectBuilder.from_isolated_env(
-        env,
+    if isolation:
+      with DefaultIsolatedEnv(installer=installer) as env:
+        builder = ProjectBuilder.from_isolated_env(
+          env,
+          srcdir,
+          runner=quiet_subprocess_runner,
+        )
+        env.install(builder.build_system_requires)
+        env.install(builder.get_requires_for_build('wheel', {}))
+        dist_info = builder._call_backend(
+          'prepare_metadata_for_build_wheel',
+          outdir,
+          {}
+        )
+        # with DefaultIsolatedEnv as env
+      # if isolation
+    else:
+      builder = ProjectBuilder(
         srcdir,
         runner=quiet_subprocess_runner,
       )
-      env.install(builder.build_system_requires)
-      env.install(builder.get_requires_for_build('wheel', {}))
       dist_info = builder._call_backend(
         'prepare_metadata_for_build_wheel',
         outdir,
         {}
       )
-      with open(os.path.join(dist_info, 'METADATA')) as metadata_fp:
-        return metadata_fp.read()
-      # with DefaultIsolatedEnv as env
+    with open(os.path.join(dist_info, 'METADATA')) as metadata_fp:
+      return metadata_fp.read()
     # with tempfile.TemporaryDirectory as outdir
   # def build_metadata -> str
 
@@ -62,6 +80,12 @@ def _parser():
     nargs='+',
     dest='metadata',
   )
+  parser.add_argument(
+    '--no-isolation',
+    '-n',
+    action='store_true',
+    help='[python -m build --no-isolation]'
+  )
   return parser
   # def _parser
 
@@ -72,6 +96,7 @@ if __name__ == '__main__':
   print('\n'.join(parse_metadata(
     build_metadata(
       args.srcdir,
+      isolation=not args.no_isolation,
     ),
     *(args.metadata or ['name']),
   )))
